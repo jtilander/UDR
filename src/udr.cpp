@@ -58,6 +58,10 @@ char * get_udr_cmd(UDR_Options * udr_options) {
 
     }
 
+    char delay_args[PATH_MAX];
+    sprintf(delay_args, " -d %d ", udr_options->timeout);
+    strcat(udr_args, delay_args);
+
     if (udr_options->verbose)
         strcat(udr_args, "-v");
 
