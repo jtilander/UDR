@@ -38,7 +38,8 @@ void set_default_udr_options(UDR_Options * options) {
     options->end_port = 9100;
     options->timeout = 15;
 
-    options->tflag = false;
+    options->tflag = false;    
+    options->ipv6 = false;
     options->sflag = false;
     options->verbose = false;
     options->encryption = false;
@@ -98,8 +99,12 @@ int get_udr_options(UDR_Options * udr_options, int argc, char * argv[], int rsyn
 
     int option_index = 0;
 
-    while ((ch = getopt_long(rsync_arg_idx, argv, "i:tlvxa:b:s:d:h:p:c:k:o:n::", long_options, &option_index)) != -1)
+    while ((ch = getopt_long(rsync_arg_idx, argv, "6i:tlvxa:b:s:d:h:p:c:k:o:n::", long_options, &option_index)) != -1)
         switch (ch) {
+
+	case '6':
+	    udr_options->ipv6 = true;
+            break;
 	case 'a':
 	    udr_options->start_port = atoi(optarg);
 	    break;
@@ -206,7 +211,7 @@ int get_udr_options(UDR_Options * udr_options, int argc, char * argv[], int rsyn
 }
 
 void parse_host_username(char * source, char * username, char * host, bool * double_colon){
-    char * colon_loc = strchr(source, ':');
+    char * colon_loc = strrchr(source, ':');
     char * at_loc = strchr(source, '@');
     int username_len, host_len;
     username_len = host_len = 0;
@@ -349,4 +354,5 @@ void get_host_username(UDR_Options * udr_options, int argc, char *argv[], int rs
         snprintf(udr_options->username, PATH_MAX, "%s", dest_username);
         udr_options->server_connect = dest_double_colon;
     }
+
 }

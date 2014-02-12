@@ -28,6 +28,7 @@ and limitations under the License.
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <arpa/inet.h>
 
 #include <udt.h>
 #include "crypto.h"
@@ -50,11 +51,15 @@ char * get_udr_cmd(UDR_Options * udr_options) {
         udr_args[0] = '\0';
 
     char delay_args[PATH_MAX];
-    sprintf(delay_args, " -d %d ", udr_options->timeout);
+    sprintf(delay_args, " -d %d", udr_options->timeout);
     strcat(udr_args, delay_args);
 
     if (udr_options->verbose)
-        strcat(udr_args, "-v");
+        strcat(udr_args, " -v");
+
+    if (udr_options->ipv6){
+        strcat(udr_args, " -6");
+    }
 
     if (udr_options->specify_ip){
 	char specify_ip_arg[PATH_MAX];
@@ -103,7 +108,11 @@ int main(int argc, char* argv[]) {
     //now get the options using udr_options.
     struct UDR_Options curr_options;
 
+
+
+
     get_udr_options(&curr_options, argc, argv, rsync_arg_idx);
+
     
     if (curr_options.version_flag)
         print_version();
@@ -125,6 +134,8 @@ int main(int argc, char* argv[]) {
         int rsync_argc = argc - rsync_arg_idx;
         char hex_pp[HEX_PASSPHRASE_SIZE];
         unsigned char passphrase[PASSPHRASE_SIZE];
+
+
 
         if (curr_options.encryption) {
             if (curr_options.verbose)
@@ -172,6 +183,15 @@ int main(int argc, char* argv[]) {
         //get the host and username first
         get_host_username(&curr_options, argc, argv, rsync_arg_idx);
 
+        char *temp = strdup(curr_options.host);
+        char * index = strrchr(temp, '%');
+        if (index)
+            *index = '\0';
+        char buf[INET6_ADDRSTRLEN];
+        if (inet_pton(AF_INET6, temp, buf))
+            curr_options.ipv6 = 1;
+
+
 	char * udr_cmd = get_udr_cmd(&curr_options);
         if (curr_options.verbose){
             fprintf(stderr, "%s udr_cmd %s\n", curr_options.which_process, udr_cmd);
@@ -215,6 +235,8 @@ int main(int argc, char* argv[]) {
                 ssh_argv[ssh_idx++] = "-l";
                 ssh_argv[ssh_idx++] = curr_options.username;
             }
+
+
             ssh_argv[ssh_idx++] = curr_options.host;
             ssh_argv[ssh_idx++] = udr_cmd;
             ssh_argv[ssh_idx++] = NULL;
@@ -315,12 +337,32 @@ int main(int argc, char* argv[]) {
 
         //fprintf(stderr, "first_source_idx: %d\n", first_source_idx);
         for (int i = rsync_arg_idx + 1; i < argc; i++) {
-            rsync_argv[rsync_idx] = (char*) malloc(strlen(argv[i]) + 1);
-            rsync_argv[rsync_idx] = argv[i];
+            rsync_argv[rsync_idx] = (char*) malloc(strlen(argv[i]) + 10);
+
+
+            // Added to handle ipv6 addresses.  rsync requires that
+            // they be in the format [ipv6]:remote_file. Also, remove
+            // the interface if specified after a %
+            char* colon_ptr;
+            if ( (colon_ptr = strrchr(argv[i], ':') ) ){
+
+                char *perc_ptr = strrchr(argv[i], '%');
+                if (perc_ptr) *perc_ptr = '\0';
+                *colon_ptr = '\0';
+                sprintf(rsync_argv[rsync_idx], "[%s]:%s", argv[i], colon_ptr+1);
+            } else {
+                rsync_argv[rsync_idx] = argv[i];
+            }
+
             rsync_idx++;
         }
 
         rsync_argv[rsync_idx] = NULL;
+
+        if (curr_options.verbose)
+            for (int k = 0; k < rsync_idx; k++)
+                fprintf(stderr, "rsync arg[%d]: %s\n", k, rsync_argv[k]);
+
 
         pid_t local_rsync_pid = fork_execvp(curr_options.rsync_program, rsync_argv, &parent_to_child, &child_to_parent);
         if (curr_options.verbose)
@@ -331,7 +373,7 @@ int main(int argc, char* argv[]) {
         char rsync_out_buf[buf_size];
         int bytes_read, bytes_written;
 
-        //This prints out the stdout from rsync to stdout
+        // This prints out the stdout from rsync to stdout
         while ((bytes_read = read(child_to_parent, rsync_out_buf, buf_size)) > 0) {
             bytes_written = write(STDOUT_FILENO, rsync_out_buf, bytes_read);
         }

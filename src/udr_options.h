@@ -31,6 +31,7 @@ struct UDR_Options{
     bool sflag;
     bool verbose;
     bool encryption;
+    bool ipv6;
     //bool server;
     bool version_flag;
     bool server_connect;

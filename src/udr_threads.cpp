@@ -262,41 +262,101 @@ void *udt_to_handle(void *threadarg) {
     my_args->is_complete = true;
 }
 
+#define SERVER_PORT     3005
+#define BUFFER_LENGTH    250
+#define FALSE              0
 
-int run_sender(UDR_Options * udr_options, unsigned char * passphrase, const char* cmd, int argc, char ** argv) {
-    UDT::startup();
+int connect_to_receiver(UDR_Options *udr_options, UDTSOCKET *client)
+{
+
     struct addrinfo hints, *local, *peer;
+
+    UDTSOCKET sock_fd;
+    // int sock_fd;
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = AF_INET;
+    // hints.ai_family = AF_UNSPEC;
+
+    fprintf(stderr, "host %s\n", udr_options->host);
+
+    unsigned char buf[sizeof(struct in6_addr)];
+    if (inet_pton(AF_INET6, udr_options->host, buf)){
+        fprintf(stderr, "IPV6\n\n\n");
+        hints.ai_family = AF_INET6;
+    } else {
+        fprintf(stderr, "IPV4\n\n\n");
+        hints.ai_family = AF_INET;
+    }
+
     hints.ai_socktype = SOCK_STREAM;
 
     if (0 != getaddrinfo(NULL, udr_options->port_num, &hints, &local)) {
-	cerr << "[udr sender] incorrect network address.\n" << endl;
-	return 1;
+        cerr << "[udr sender] incorrect network address.\n" << endl;
+        return 1;
     }
 
-    UDTSOCKET client = UDT::socket(local->ai_family, local->ai_socktype, local->ai_protocol);
+    sock_fd = UDT::socket(local->ai_family, local->ai_socktype, local->ai_protocol);
+    // sock_fd = socket(local->ai_family, local->ai_socktype, local->ai_protocol);
+
+    if (sock_fd <= 0){
+        perror("[udr sender] unable to create socket");
+        return 1;
+    }
 
     freeaddrinfo(local);
 
-    if (0 != getaddrinfo(udr_options->host, udr_options->port_num, &hints, &peer)) {
-	cerr << "[udr sender] incorrect server/peer address. " << udr_options->host << ":" << udr_options->port_num << endl;
-	return 1;
+    if (getaddrinfo(udr_options->host, udr_options->port_num, &hints, &peer)) {
+        cerr << "[udr sender] unable to get info about server/peer address " << 
+            udr_options->host << ":" << udr_options->port_num << endl;
+        return 1;
     }
 
-    if (UDT::ERROR == UDT::connect(client, peer->ai_addr, peer->ai_addrlen)) {
-	cerr << "[udr sender] connect: " << UDT::getlasterror().getErrorMessage() << endl;
-	return 1;
+    int connected = 0;
+    while (peer){
+
+        // if (connect(sock_fd, peer->ai_addr, peer->ai_addrlen)){
+        //     perror("[udr sender] unable to connect normally");
+        //     // return 1;
+        //     peer = peer->ai_next;
+        // } else {
+        //     fprintf(stderr, "WORKED NORMALLY\n\n");
+        //     return 0;
+        // }
+
+        
+        if (UDT::ERROR == UDT::connect(sock_fd, peer->ai_addr, peer->ai_addrlen)) {
+            cerr << "[udr sender] connect attempt: " << UDT::getlasterror().getErrorMessage() << endl;
+            peer = peer->ai_next;
+        } else {
+            break;
+        }
+
     }
 
+    if (!peer){
+        cerr << "[udr sender] unable to connect to receiver\n";
+        return 1;
+    }
+
+    *client = sock_fd;
+    
     freeaddrinfo(peer);
 
-    // not using CC method yet
-    //CUDPBlast* cchandle = NULL;
-//  int value;
-//  int temp;
+    return 0;
+
+}
+
+
+int run_sender(UDR_Options * udr_options, unsigned char * passphrase, const char* cmd, int argc, char ** argv) {
+
+    UDT::startup();
+    UDTSOCKET client;
+
+    if (connect_to_receiver(udr_options, &client)){
+        cerr << "[udr sender] connect: unable to connect to receiver\n";
+        return 1;
+    }
 
     char* data = new char[max_block_size];
 
@@ -372,14 +432,8 @@ int run_sender(UDR_Options * udr_options, unsigned char * passphrase, const char
 }
 
 
-int run_receiver(UDR_Options * udr_options) {
-    string filename = local_logfile_dir + "receiver_log.txt";
-    //FILE * logfile = fopen(filename.c_str(), "w");
-
-    int orig_ppid = getppid();
-
-    UDT::startup();
-
+int listen_for_sender(UDR_Options *udr_options, UDTSOCKET *serv, char *receiver_port)
+{
     addrinfo hints;
     addrinfo* res;
 
@@ -389,64 +443,94 @@ int run_receiver(UDR_Options * udr_options) {
     int specify_ip = !!(udr_options->specify_ip);
 
     if (udr_options->verbose && specify_ip)
-	fprintf(stderr, "Specifying on specific ip: %s\n", udr_options->specify_ip);
+        fprintf(stderr, "Specifying on specific ip: %s\n", udr_options->specify_ip);
 
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
 
-    char receiver_port[NI_MAXSERV];
-    UDTSOCKET serv;
+    if (udr_options->ipv6){
+        fprintf(stderr, "IPV6\n\n\n");
+        hints.ai_family = AF_INET6;
+    } else {
+        fprintf(stderr, "IPV4\n\n\n");
+        hints.ai_family = AF_INET;
+    }
+    
+    hints.ai_flags = AI_PASSIVE;
+    hints.ai_socktype = SOCK_STREAM;
 
     bool bad_port = false;
 
     if(udr_options->start_port > udr_options->end_port){
-	fprintf(stderr, "[udr receiver] ERROR: invalid port range %d - %d\n", udr_options->start_port, udr_options->end_port);
-	return 0;
+        fprintf(stderr, "[udr receiver] ERROR: invalid port range %d - %d\n", 
+                udr_options->start_port, udr_options->end_port);
+        return 1;
     }
 
+    int r;
     for(int port_num = udr_options->start_port; port_num <= udr_options->end_port; port_num++) {
-	bad_port = false;
-	snprintf(receiver_port, sizeof(receiver_port), "%d", port_num);
+        bad_port = false;
 
-	if (0 != getaddrinfo(NULL, receiver_port, &hints, &res)) {
-	    bad_port = true;
-	}
-	else {
+        snprintf(receiver_port, sizeof(receiver_port), "%d", port_num);
 
-	    serv = UDT::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+        if (0 != getaddrinfo(NULL, receiver_port, &hints, &res)) {
+            bad_port = true;
 
-	    int r;
+        } else {
 
-	    if (specify_ip){ 
+            *serv = UDT::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 
-		my_addr.sin_family = AF_INET;     
-		my_addr.sin_port = htons(port_num); 
-		my_addr.sin_addr.s_addr = inet_addr(udr_options->specify_ip);
-		bzero(&(my_addr.sin_zero), 8);    
+            if (specify_ip){ 
 
-		r = UDT::bind(serv, (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
-	    } else {
-		r = UDT::bind(serv, res->ai_addr, res->ai_addrlen);
-	    }
+                my_addr.sin_family = AF_INET6;     
+                my_addr.sin_port = htons(port_num); 
+                my_addr.sin_addr.s_addr = inet_addr(udr_options->specify_ip);
+                bzero(&(my_addr.sin_zero), 8);    
 
-	    if (UDT::ERROR == r){
-		bad_port = true;
-	    }
-	}
+                r = UDT::bind(*serv, (struct sockaddr *)&my_addr, sizeof(struct sockaddr));
+            } else {
+                r = UDT::bind(*serv, res->ai_addr, res->ai_addrlen);
+            }
 
-	freeaddrinfo(res);
+            if (UDT::ERROR == r){
+                bad_port = true;
+            }
+        }
 
-	if(!bad_port)
-	    break;
+        freeaddrinfo(res);
+
+        if(!bad_port)
+            break;
+
     }
 
     if(bad_port){
-	fprintf(stderr, "[udr receiver] ERROR: could not bind to any port in range %d - %d\n", udr_options->start_port, udr_options->end_port);
-	return 0;
+        fprintf(stderr, "[udr receiver] ERROR: could not bind to any port in range %d - %d\n", udr_options->start_port, udr_options->end_port);
+        return 1;
     }
 
+    
+    
+    return 0;
+    
+}
+
+
+int run_receiver(UDR_Options * udr_options) {
+
+    string filename = local_logfile_dir + "receiver_log.txt";
+    int orig_ppid = getppid();
+
+
+    // Create socket, bind, listen and accept sender
+    UDT::startup();
+    UDTSOCKET serv;
+    char receiver_port[NI_MAXSERV];
+    if (listen_for_sender(udr_options, &serv, receiver_port)){
+        fprintf(stderr, "[udr receiver] ERROR: unable to connect to sender\n");
+        return 1;
+    }
+
+    
     unsigned char rand_pp[PASSPHRASE_SIZE];
     int success = RAND_bytes((unsigned char *) rand_pp, PASSPHRASE_SIZE);
 
@@ -499,7 +583,9 @@ int run_receiver(UDR_Options * udr_options) {
 	exit(1);
     }
 
+
     char * rsync_cmd;
+
     if(udr_options->server_connect){
         if(udr_options->verbose)
             fprintf(stderr, "[udr receiver] server connect mode\n");
