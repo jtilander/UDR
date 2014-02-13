@@ -282,10 +282,8 @@ int connect_to_receiver(UDR_Options *udr_options, UDTSOCKET *client)
 
     unsigned char buf[sizeof(struct in6_addr)];
     if (inet_pton(AF_INET6, udr_options->host, buf)){
-        fprintf(stderr, "IPV6\n\n\n");
         hints.ai_family = AF_INET6;
     } else {
-        fprintf(stderr, "IPV4\n\n\n");
         hints.ai_family = AF_INET;
     }
 
@@ -448,10 +446,8 @@ int listen_for_sender(UDR_Options *udr_options, UDTSOCKET *serv, char *receiver_
     memset(&hints, 0, sizeof(struct addrinfo));
 
     if (udr_options->ipv6){
-        fprintf(stderr, "IPV6\n\n\n");
         hints.ai_family = AF_INET6;
     } else {
-        fprintf(stderr, "IPV4\n\n\n");
         hints.ai_family = AF_INET;
     }
     
