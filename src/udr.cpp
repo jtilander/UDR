@@ -185,12 +185,10 @@ int main(int argc, char* argv[]) {
 
         char *temp = strdup(curr_options.host);
         char * index = strrchr(temp, '%');
-        if (index)
-            *index = '\0';
+        if (index) *index = '\0';
         char buf[INET6_ADDRSTRLEN];
         if (inet_pton(AF_INET6, temp, buf))
             curr_options.ipv6 = 1;
-
 
 	char * udr_cmd = get_udr_cmd(&curr_options);
         if (curr_options.verbose){
