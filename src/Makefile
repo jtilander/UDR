@@ -5,7 +5,7 @@ ifndef os
 endif
 
 ifndef arch
-   arch = IA32
+   arch = AMD64
 endif
 
 CCFLAGS = -Wall -D$(os) -I../udt/src -finline-functions -g

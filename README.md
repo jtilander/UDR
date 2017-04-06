@@ -14,8 +14,8 @@ TO MAKE
 -------
     make -e os=XXX arch=YYY
 
-XXX: [LINUX(default), BSD, OSX]
-YYY: [IA32(default), POWERPC, IA64, AMD64]
+XXX: [LINUX(default), BSD, OSX]   
+YYY: [AMD64(default), POWERPC, IA64, IA32]  
 
 ### Dependencies:
 OpenSSL (libssl and libcrypto)

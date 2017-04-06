@@ -5,7 +5,7 @@ ifndef os
 endif
 
 ifndef arch
-   arch = IA32
+   arch = AMD64
 endif
 
 CCFLAGS = -fPIC -Wall -Wextra -D$(os) -finline-functions -O3 -fno-strict-aliasing #-msse3
